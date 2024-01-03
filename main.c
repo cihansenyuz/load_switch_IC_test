@@ -1,104 +1,168 @@
 #include "stm32f10x.h" /* we need it for GPIO interrupt */
 #include "gp_driver.h"
-#include "timer.h"
-#include "main.h"
-#include "display_funcs.h" /* also includes "1602_i2c_driver.h" "help_func.h" "systick_delay.h" */
+#include "1602_i2c_driver.h" /* this header includes systick_delay.h */
+#include "help_func.h"
 
+/* ----- SETTINGS ----*/
 
-static char quitSignal = 0;
-static int counterLoaded = 0;
-static int counterUnloaded = 0;
-static int counter10ms = 0;
-static int counterErrorRelay = 0;
-static char flag100ms = 0;
-static char flag10ms = 0;
-static char flagTestDone = 0;
-/*int counterOutDelay = 0;*/
+#define TOTAL_TEST 3					/* set it up to 4,294,967,295 */
+#define LOAD_DURITION 500 			/* set it in miliseconds */
+#define UNLOAD_DURITION 300		/* set it in miliseconds */
+
+/* ------------------ */
+
+void loaded(unsigned int);
+void unloaded(unsigned int);
+int checkDevice(void);
+int checkDeviceSupply(void);
+int checkRelay(void);
+void errorMessage(char*);
+void supplyErrorMessage(char*);
+void relayErrorMessage(char*);
+void printTest(char*);
+void startMessage(void);
+void successMessage(char*);
+void configSetup(void);
+void EXTI0_IRQHandler(void);
+static int quitSignal;
 
 int main(void)
 {
 	configSetup();
-	startMessage();
 	
-	/* debug purposes */
-	gpio_init(PA,0,OUT50,OUT_GP_PP);
-	write_GP(PA,0,HIGH);
-	/* debug purposes */
-	
-	unsigned int currentTestNo = 1;
+	unsigned int currentTestNo;
 	unsigned int totalTestNo = TOTAL_TEST;
-	char* stringTestNo;
+	char* temp;
+	int errorCounter = 0;
 	
-	char flagNewTest = 1;
+	startMessage();
+	quitSignal = 0;
 	
-	while(1)
+	for(currentTestNo=1; totalTestNo >= currentTestNo; currentTestNo++)
 	{
-		/*if(flag10ms >= 1)
-		{
-			flag10ms = 0;
-			timer10msControl();
-		}*/
+		temp = int2char(currentTestNo);
+		printTest(temp); /* convert to string cause 1602 needs string */
+		loaded(LOAD_DURITION);
+		unloaded(UNLOAD_DURITION);
 		
-		if(flag100ms >= 1)
+		if(checkRelay() == 0) /* check relay if it returns back initial state */
 		{
-			/* debug purposes */
-			toggle_GP(PA,0);
-			/* debug purposes */
-			flag100ms = 0;
-			timer100msControl();
-			if(currentTestNo <= totalTestNo)
+			errorCounter++;
+			if(errorCounter == 3) /* decide error if fails 3 times in a row */
 			{
-				if(flagNewTest) /* if new test starts, then update LCD */
-				{
-					flagNewTest = 0;
-					stringTestNo = int2char(currentTestNo); /* convert to string cause 1602 needs string */
-					printTest(stringTestNo);
-				}
-				setCounterLoaded(LOAD_DURITION);				
-				if(flagTestDone)
-				{
-					flagTestDone = 0;
-					
-					/* ------- Relay Check ------ */
-					if(checkRelay() == 0) /* check relay if it returns back initial state */
-					{
-						relayErrorMessage(stringTestNo);
-						return 0;				
-					}
-					
-					/* ------- Device & Supply Check ------ */
-					if(checkDeviceSupply() == 1) /* check whether DUT has proper supply */
-					{
-						if(checkDevice() == 0) /* DUT has supply, so now check device health */
-						{
-							errorMessage(stringTestNo);
-							return 0;
-						}
-					}
-					else
-					{
-						supplyErrorMessage(stringTestNo);
-						return 0;
-					}
-					
-					if(quitSignal)
-						break;
-					currentTestNo++;
-					flagNewTest = 1;
-					free(stringTestNo); /* into2char function allocate memory each time it s called. Need to be deallocated */
-				}
-			}
-			else
+				relayErrorMessage(temp);
+				return 0;
+			}				
+		}
+		else
+			errorCounter = 0; /* reset error counter if test is successfull */
+		
+		if(checkDeviceSupply() == 1) /* check whether DUT has proper supply */
+		{
+			if(checkDevice() == 0) /* DUT has supply, so now check device health */
 			{
-				successMessage(int2char(currentTestNo-1));
+				errorMessage(int2char(currentTestNo));
 				return 0;
 			}
-			relayControl();
 		}
+		else
+		{
+			supplyErrorMessage(int2char(currentTestNo));
+			return 0;
+		}
+		
+		free(temp); /* into2char function allocate memory each time it s called. Need to be deallocated */
+		if(quitSignal)
+			break;
 	}
-	displayMessage("QUITED");
+	successMessage(int2char(currentTestNo-1));
+	unloaded(0); /* finish the test unloaded with no durition */
 	return 0;
 }
+
+void loaded(unsigned int miliSec)
+{
+	write_GP(PA,1,LOW);
+	delayMS(miliSec);
+}
+
+void unloaded(unsigned int miliSec)
+{
+	write_GP(PA,1,HIGH);
+	if(miliSec > 0)
+		delayMS(miliSec);
+}
+
+int checkDevice(void)
+{
+	write_GP(PA,2,LOW); /* disable DUT */
+	delayMS(20); /* to prevent reading much earlier than output react */
+	if(read_GP(PA,3) == 1) /* reads Vout of DUT, if High, Vin and Vout is short circuited inside DUT */
+		return 0;
+	write_GP(PA,2,HIGH); /* enable DUT */
+	return 1;
+}
+
+int checkDeviceSupply(void)
+{
+	if(read_GP(PA,4) == 0) /* if high, Vin of DUT is supplied */
+		return 0;
+	return 1;
+}
+
+int checkRelay(void)
+{
+	if(read_GP(PA,5) == 0) /* if PA5 is low, relay sticks to last position. */
+		return 0;
+	return 1;
+}
+
+void errorMessage(char* testNumber)
+{
+	displayClear();
+	displayMessage("IC Arizalandi!");
+	displayNewLine();
+	displayMessage("Test #");
+	displayMessage(testNumber);
+}
+
+void supplyErrorMessage(char* testNumber)
+{
+	displayClear();
+	displayMessage("No IC Supply!");
+	displayNewLine();
+	displayMessage("Test #");
+	displayMessage(testNumber);
+}
+
+void relayErrorMessage(char* testNum)
+{
+	displayClear();
+	displayMessage("Relay NOK!");
+	displayNewLine();
+	displayMessage("Test: ");
+	displayMessage(testNum);
+}
+
+void printTest(char* testNumber)
+{
+	displayClear();
+	displayMessage("Test #");
+	displayMessage(testNumber);
+}
+
+void startMessage(void)
+{
+	displayMessage("Starts in 3 secs");
+	displayNewLine();
+	displayMessage("3, ");
+	delayMS(1000);
+	displayMessage("2, ");
+	delayMS(1000);
+	displayMessage("1,");
+	delayMS(1000);
+	displayClear();
+}	
 
 void configSetup(void)
 {
@@ -129,72 +193,15 @@ void configSetup(void)
 	i2c_init(2,i2c_FastMode);
 	delayMS(40);
 	displayInit();
-	
-	timer_interrupt_start_ms(timer1,10);
 }
 
-void setCounterLoaded(int count)
+void successMessage(char* testNumber)
 {
-	if(counterLoaded == 0 && counterUnloaded == 0 && flagTestDone == 0) /* set counterLoaded if all proceses are over */
-		counterLoaded = count;
-}
-
-int checkDevice(void)
-{
-	write_GP(PA,2,LOW); /* disable DUT */
-	delayMS(30); /* to prevent reading much earlier than output react */
-	
-	if(read_GP(PA,3) == 1) /* reads Vout of DUT, if High, Vin and Vout is short circuited inside DUT */
-		return 0;
-	write_GP(PA,2,HIGH); /* enable DUT */
-	return 1;
-}
-
-int checkDeviceSupply(void)
-{
-	if(read_GP(PA,4) == 0) /* if high, Vin of DUT is supplied */
-		return 0;
-	return 1;
-}
-
-int checkRelay(void)
-{
-	if(read_GP(PA,5) == 0) /* if PA5 is low, relay sticks to last position. */
-	{
-		counterErrorRelay++;
-		if(counterErrorRelay == 3) /* decide error if fails 3 times in a row */
-			return 0;
-		else
-			return 1;
-	}
-	counterErrorRelay = 0;	/* reset error counter if test is successfull */
-	return 1;
-}
-
-void timer100msControl(void)
-{
-	if(counterLoaded > 0)
-	{
-		counterLoaded--;
-		if(counterLoaded <= 0)
-			counterUnloaded = UNLOAD_DURITION +1; /* +1 to balance -- in the next if{} */
-	}
-	if(counterUnloaded > 0)
-	{
-		counterUnloaded--;
-		if(counterUnloaded <= 0)
-		{
-			flagTestDone = 1;
-		}
-	}
-}
-
-void relayControl(void)
-{
-	if(counterLoaded > 0)
-		write_GP(PA,1,LOW); /* load the output via relay */
-	else if(counterUnloaded > 0)
-		write_GP(PA,1,HIGH); /* unload the output via relay */
+	displayClear();
+	displayMessage("Test Done! IC OK!");
+	displayNewLine();
+	displayMessage("Test #");
+	displayMessage(testNumber);
 }
 
 void EXTI0_IRQHandler(void)
@@ -202,24 +209,3 @@ void EXTI0_IRQHandler(void)
 	quitSignal = 1;
 	EXTI->PR |= 0x01; /* to reset interrupt */
 }
-
-void TIM1_UP_IRQHandler(void)
-{
-	timer_interrupt_flag_reset(timer1);
-	counter10ms++;
-	if(counter10ms >= 10 ) /* count until 10 to rise 100ms flag */
-	{
-		counter10ms = 0;
-		flag100ms = 1;
-	}
-	flag10ms = 1;
-}
-
-/*void timer10msControl(void)
-{
-	if(counterOutDelay > 0)
-	{
-		counterOutDelay--;
-		
-	}
-}*/
