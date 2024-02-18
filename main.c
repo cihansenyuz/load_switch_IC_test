@@ -1,12 +1,11 @@
 #include "main.h"
 
 static char quitSignal = 0;
-static int counterLoaded = 0;
-static int counterUnloaded = 0;
-static int counter10ms = 0;
+static int counterLoaded = 0;		/* to count load durition */
+static int counterUnloaded = 0;		/* to count unload durition */
 static int counterErrorRelay = 0;
-static char flag100ms = 0;
-static char flagTestDone = 0;
+static char flag100ms = 0;			/* to count each 100 ms */
+static char flagTestDone = 0;		/* indicates test is over, analysis may begin */
 
 int main(void)
 {
@@ -15,35 +14,34 @@ int main(void)
 	
 	unsigned int currentTestNo = 1;
 	unsigned int totalTestNo = TOTAL_TEST;
-	char* stringTestNo;			/* to print test no on the display */
-	char flagNewTest = 1;
+	char* stringTestNo;				/* to print test no on the display */
+	char flagNewTest = 1;			/* indicates begining of a new test cycle */
 	
 	while(1)
 	{
 		if(flag100ms >= 1)
 		{
 			flag100ms = 0;
-			timer100msControl();
+			updateTestStatus();	/* update load/unload durition left each 100 ms */
 			if(currentTestNo <= totalTestNo)
 			{
-				if(flagNewTest) /* if new test starts, then update LCD */
+				if(flagNewTest) 	/* if new test starts, then update LCD */
 				{
 					flagNewTest = 0;
 					stringTestNo = int2char(currentTestNo); /* convert to string cause 1602 needs string */
 					printTest(stringTestNo);
 				}
-				setCounterLoaded(LOAD_DURITION);				
+				setCounterLoaded(LOAD_DURITION); /* since new test started, begin load durition */			
 				if(flagTestDone)
 				{
+					/* test cycle (load, unload) is done, analysis (checks) begins */
 					flagTestDone = 0;
-					
 					/* ------- Relay Check ------ */
 					if(checkRelay() == 0) /* check relay if it returns back initial state */
 					{
 						relayErrorMessage(stringTestNo);
 						return 0;				
 					}
-					
 					/* ------- Device & Supply Check ------ */
 					if(checkDeviceSupply() == 1) /* check whether DUT has proper supply */
 					{
@@ -53,25 +51,25 @@ int main(void)
 							return 0;
 						}
 					}
-					else
+					else /* no supply case */
 					{
 						supplyErrorMessage(stringTestNo);
 						return 0;
 					}
 					
-					if(quitSignal)
+					if(quitSignal) /* user quit button check */
 						break;
 					currentTestNo++;
 					flagNewTest = 1;
 					free(stringTestNo); /* into2char function allocate memory each time it s called. Need to be deallocated */
 				}
 			}
-			else
+			else /* test number reached to target test number */
 			{
 				successMessage(int2char(currentTestNo-1));
 				return 0;
 			}
-			relayControl();
+			relayControl(); /* handle relay position */
 		}
 	}
 	displayMessage("QUITED");
@@ -195,36 +193,51 @@ void TIM1_UP_IRQHandler(void)
 	}
 }
 
-
+/* 
+* Checks if all test and analysis is done, then sets load durition counter to start new cycle
+*
+* @param count how many ms to load the IC
+* @return none
+*/
 void setCounterLoaded(int count)
 {
-	if(counterLoaded == 0 && counterUnloaded == 0 && flagTestDone == 0) /* set counterLoaded if all proceses are over */
+	if(counterLoaded == 0 && counterUnloaded == 0 && flagTestDone == 0) /* set counterLoaded if all proceses are over which means beginning of a new test cycle */
 		counterLoaded = count;
 }
 
-void timer100msControl(void)
+/* 
+* When called after each 100 ms, updates current status of load and unload counters. If load durition is done, starts unload durition. If unload durition is done, raises tests are done flag. Catch the flag to begin analysis.
+*
+* @param none
+* @return none
+*/
+void updateTestStatus(void)
 {
-	if(counterLoaded > 0)
+	if(counterLoaded > 0)			/* if process is in load durition, decrease load counter */
 	{
 		counterLoaded--;
-		if(counterLoaded <= 0)
+		if(counterLoaded <= 0)		/* load durition is over, start unload durition */
 			counterUnloaded = UNLOAD_DURITION +1; /* +1 to balance -- in the next if{} */
 	}
-	if(counterUnloaded > 0)
+	if(counterUnloaded > 0)			/* if process is in unload durition, decrease unload counter */
 	{
 		counterUnloaded--;
-		if(counterUnloaded <= 0)
-		{
+		if(counterUnloaded <= 0)	/* unload durition is over, raise the test done flag! */
 			flagTestDone = 1;
-		}
 	}
 }
 
+/* 
+* Handles current status of the relay. If process is load or unload, loads or unloads the IC respectively.
+*
+* @param none
+* @return none
+*/
 void relayControl(void)
 {
-	if(counterLoaded > 0)
-		write_GP(PA,1,LOW); 		/* load the output via relay */
-	else if(counterUnloaded > 0)
-		write_GP(PA,1,HIGH); 		/* unload the output via relay */
+	if(counterLoaded > 0)			/* if process is in load durition, load the output via relay */
+		write_GP(PA,1,LOW);
+	else if(counterUnloaded > 0)	/* if process is in unload durition, unload the output via relay */
+		write_GP(PA,1,HIGH);
 }
 

@@ -14,8 +14,8 @@
   *
   * Before starting the test, must follow the below instructions list
   *
-  * - Set TOTAL_TEST, LOAD_DURITION, and UNLOAD_DURITION for example; 500 test cycles for
-  * 500 milisecs of USB load plugged, and for 300 milisecs of USB load unplugged.
+  * - Set TOTAL_TEST, LOAD_DURITION, and UNLOAD_DURITION for example; 1000 test cycles for
+  * 1500 milisecs of USB load plugged, and for 300 milisecs of USB load unplugged.
   * - Build the project and upload it to STM32.
   * - Prepare the setup by doing all hardware connections. Use the
   * "Load_switch_IC_schematic.pdf" file on the GitHub for your reference.
@@ -45,5 +45,5 @@ void configSetup(void);
 
 void EXTI0_IRQHandler(void);
 void TIM1_UP_IRQHandler(void);
-void timer100msControl(void);
+void updateTestStatus(void);
 void relayControl(void);
