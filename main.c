@@ -1,65 +1,41 @@
-#include "stm32f10x.h" /* we need it for GPIO interrupt */
-#include "gp_driver.h"
-#include "1602_i2c_driver.h" /* this header includes systick_delay.h */
-#include "help_func.h"
+#include "main.h"
 
-/* ----- SETTINGS ----*/
-
-#define TOTAL_TEST 3					/* set it up to 4,294,967,295 */
-#define LOAD_DURITION 500 			/* set it in miliseconds */
-#define UNLOAD_DURITION 300		/* set it in miliseconds */
-
-/* ------------------ */
-
-void loaded(unsigned int);
-void unloaded(unsigned int);
-int checkDevice(void);
-int checkDeviceSupply(void);
-int checkRelay(void);
-void errorMessage(char*);
-void supplyErrorMessage(char*);
-void relayErrorMessage(char*);
-void printTest(char*);
-void startMessage(void);
-void successMessage(char*);
-void configSetup(void);
-void EXTI0_IRQHandler(void);
 static int quitSignal;
 
 int main(void)
 {
 	configSetup();
 	
-	unsigned int currentTestNo;
-	unsigned int totalTestNo = TOTAL_TEST;
-	char* temp;
-	int errorCounter = 0;
+	unsigned int currentTestNo;				/* counter for current test */
+	unsigned int totalTestNo = TOTAL_TEST;	/* target test number */
+	char* temp;								/* temporary string to send test number to the display */
+	int errorCounter = 0;					/* to prevent false call */
 	
 	startMessage();
-	quitSignal = 0;
+	quitSignal = 0;							/* Signal for quit test button */
 	
 	for(currentTestNo=1; totalTestNo >= currentTestNo; currentTestNo++)
 	{
 		temp = int2char(currentTestNo);
-		printTest(temp); /* convert to string cause 1602 needs string */
+		printTest(temp); 				/* convert to string cause 1602 needs string */
 		loaded(LOAD_DURITION);
 		unloaded(UNLOAD_DURITION);
 		
-		if(checkRelay() == 0) /* check relay if it returns back initial state */
+		if(checkRelay() == 0) 			/* check relay if it returns back initial state */
 		{
 			errorCounter++;
-			if(errorCounter == 3) /* decide error if fails 3 times in a row */
+			if(errorCounter == 3) 		/* decide error if fails 3 times in a row */
 			{
 				relayErrorMessage(temp);
 				return 0;
 			}				
 		}
 		else
-			errorCounter = 0; /* reset error counter if test is successfull */
+			errorCounter = 0; 			/* reset error counter if test is successfull */
 		
-		if(checkDeviceSupply() == 1) /* check whether DUT has proper supply */
+		if(checkDeviceSupply() == 1) 	/* check whether DUT has proper supply */
 		{
-			if(checkDevice() == 0) /* DUT has supply, so now check device health */
+			if(checkDevice() == 0) 		/* DUT has supply, so now check device health */
 			{
 				errorMessage(int2char(currentTestNo));
 				return 0;
@@ -71,21 +47,34 @@ int main(void)
 			return 0;
 		}
 		
-		free(temp); /* into2char function allocate memory each time it s called. Need to be deallocated */
+		/* into2char function allocate memory each time it s called. Need to be deallocated */
+		free(temp); 					
 		if(quitSignal)
 			break;
 	}
 	successMessage(int2char(currentTestNo-1));
-	unloaded(0); /* finish the test unloaded with no durition */
+	unloaded(0); 						/* finish the test unloaded with no durition */
 	return 0;
 }
 
+/* 
+* Loads the IC output switching the relay
+*
+* @param milisec how much durition need to be loaded
+* @return none
+*/
 void loaded(unsigned int miliSec)
 {
 	write_GP(PA,1,LOW);
 	delayMS(miliSec);
 }
 
+/* 
+* Removes the load from the IC output switching the relay
+*
+* @param milisec how much durition need to kept unloaded
+* @return none
+*/
 void unloaded(unsigned int miliSec)
 {
 	write_GP(PA,1,HIGH);
@@ -93,6 +82,12 @@ void unloaded(unsigned int miliSec)
 		delayMS(miliSec);
 }
 
+/* 
+* Tests the IC whether it is still operational or not
+*
+* @param none
+* @return 1: operational, 0: defected
+*/
 int checkDevice(void)
 {
 	write_GP(PA,2,LOW); /* disable DUT */
@@ -103,6 +98,12 @@ int checkDevice(void)
 	return 1;
 }
 
+/* 
+* Checks if the IC supply is present.
+*
+* @param none
+* @return 1: supplied, 0: no supply
+*/
 int checkDeviceSupply(void)
 {
 	if(read_GP(PA,4) == 0) /* if high, Vin of DUT is supplied */
@@ -110,6 +111,12 @@ int checkDeviceSupply(void)
 	return 1;
 }
 
+/* 
+* Controls the relay whether it is still working properly.
+*
+* @param none
+* @return 1: operational, 0: sticked to the last position
+*/
 int checkRelay(void)
 {
 	if(read_GP(PA,5) == 0) /* if PA5 is low, relay sticks to last position. */
@@ -117,53 +124,12 @@ int checkRelay(void)
 	return 1;
 }
 
-void errorMessage(char* testNumber)
-{
-	displayClear();
-	displayMessage("IC Arizalandi!");
-	displayNewLine();
-	displayMessage("Test #");
-	displayMessage(testNumber);
-}
-
-void supplyErrorMessage(char* testNumber)
-{
-	displayClear();
-	displayMessage("No IC Supply!");
-	displayNewLine();
-	displayMessage("Test #");
-	displayMessage(testNumber);
-}
-
-void relayErrorMessage(char* testNum)
-{
-	displayClear();
-	displayMessage("Relay NOK!");
-	displayNewLine();
-	displayMessage("Test: ");
-	displayMessage(testNum);
-}
-
-void printTest(char* testNumber)
-{
-	displayClear();
-	displayMessage("Test #");
-	displayMessage(testNumber);
-}
-
-void startMessage(void)
-{
-	displayMessage("Starts in 3 secs");
-	displayNewLine();
-	displayMessage("3, ");
-	delayMS(1000);
-	displayMessage("2, ");
-	delayMS(1000);
-	displayMessage("1,");
-	delayMS(1000);
-	displayClear();
-}	
-
+/* 
+* Configurates and initiliazes GPIOs, GPIO interrupt, I2C and display.
+*
+* @param none
+* @return none
+*/
 void configSetup(void)
 {
 	gpio_init(PA,1,OUT50,OUT_GP_PP);
@@ -171,23 +137,23 @@ void configSetup(void)
 	gpio_init(PA,3,IN,IN_PP);
 	gpio_init(PA,4,IN,IN_PP);
 	gpio_init(PA,5,IN,IN_PP);
-	GPIOA->ODR |= 0x18; /* set inputs 3,4 pull up */
+	GPIOA->ODR |= 0x18; 			/* set inputs 3,4 pull up */
 	
 	gpio_init(PB,0,IN,IN_PP);
-	GPIOA->ODR |= 0x00; /* set it pull down input */
-	RCC->APB2ENR |= 0x01; /* enable clock for AFIO */
+	GPIOA->ODR |= 0x00; 			/* set it pull down input */
+	RCC->APB2ENR |= 0x01; 			/* enable clock for AFIO */
 	
 	/* interrupt config */
 	__disable_irq();
-	AFIO->EXTICR[0] = 1; /* to select portB pin0 for interrupt */
-	EXTI->IMR |= 0x01; /* disable interrupt mask for pin0 */
-	EXTI->RTSR |= 0x01; /* enable rising edge trigger */
+	AFIO->EXTICR[0] = 1; 			/* to select portB pin0 for interrupt */
+	EXTI->IMR |= 0x01; 				/* disable interrupt mask for pin0 */
+	EXTI->RTSR |= 0x01; 			/* enable rising edge trigger */
 	NVIC_EnableIRQ(EXTI0_IRQn);
 	__enable_irq();
 	/* end of interrupt config */
 	
-	write_GP(PA,2,HIGH); /* begin DUT enabled */
-	write_GP(PA,1,HIGH); /* begin to test unloaded */
+	write_GP(PA,2,HIGH); 			/* begin DUT enabled */
+	write_GP(PA,1,HIGH); 			/* begin to test unloaded */
 	
 	systick_init();
 	i2c_init(2,i2c_FastMode);
@@ -195,17 +161,14 @@ void configSetup(void)
 	displayInit();
 }
 
-void successMessage(char* testNumber)
-{
-	displayClear();
-	displayMessage("Test Done! IC OK!");
-	displayNewLine();
-	displayMessage("Test #");
-	displayMessage(testNumber);
-}
-
+/* 
+* Handles GPIO interrupt. It is from STM32 library.
+*
+* @param none
+* @return none
+*/
 void EXTI0_IRQHandler(void)
 {
 	quitSignal = 1;
-	EXTI->PR |= 0x01; /* to reset interrupt */
+	EXTI->PR |= 0x01; 				/* to reset interrupt */
 }
