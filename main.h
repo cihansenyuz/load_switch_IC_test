@@ -21,26 +21,29 @@
   * "Load_switch_IC_schematic.pdf" file on the GitHub for your reference.
   * - Once the hardware setup connection is ready, power it to run the test.
   * 
-  * @note   Source code depends on stm32f10x.h, gp_driver.h, 1602_i2c_driver.h,
-  * display_funcs.h and help_func.h libraries
+  * @note   Source code depends on stm32f10x.h, gp_driver.h, display_funcs.h,
+  * and timer.h libraries
   ******************************************************************************
   */
 
-#include "stm32f10x.h" /* we need it for GPIO interrupt */
+#include "display_funcs.h"  /* also includes "1602_i2c_driver.h" "help_func.h" "systick_delay.h" */
+#include "stm32f10x.h"      /* we need it for GPIO interrupt */
 #include "gp_driver.h"
-#include "1602_i2c_driver.h" /* this header includes systick_delay.h */
-#include "help_func.h"
-#include "display_funcs.h"
+#include "timer.h"
 
-/* ----- SETTINGS ----*/
+/* -------------------- TEST SETTINGS --------------------*/
 #define TOTAL_TEST 1000  		/* set it up to 4,294,967,295 */
-#define LOAD_DURITION 500 		/* set it in 100 miliseconds */
-#define UNLOAD_DURITION 300		/* set it in 100 miliseconds */
+#define LOAD_DURITION 15 		/* set it in 100 miliseconds  */
+#define UNLOAD_DURITION 3		/* set it in 100 miliseconds  */
+/* ------------------------------------------------------ */
 
-void loaded(unsigned int);
-void unloaded(unsigned int);
+void setCounterLoaded(int);
 int checkDevice(void);
 int checkDeviceSupply(void);
 int checkRelay(void);
 void configSetup(void);
+
 void EXTI0_IRQHandler(void);
+void TIM1_UP_IRQHandler(void);
+void timer100msControl(void);
+void relayControl(void);

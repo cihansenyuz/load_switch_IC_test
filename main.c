@@ -1,85 +1,81 @@
 #include "main.h"
 
-static int quitSignal;
+static char quitSignal = 0;
+static int counterLoaded = 0;
+static int counterUnloaded = 0;
+static int counter10ms = 0;
+static int counterErrorRelay = 0;
+static char flag100ms = 0;
+static char flagTestDone = 0;
 
 int main(void)
 {
 	configSetup();
-	
-	unsigned int currentTestNo;				/* counter for current test */
-	unsigned int totalTestNo = TOTAL_TEST;	/* target test number */
-	char* temp;								/* temporary string to send test number to the display */
-	int errorCounter = 0;					/* to prevent false call */
-	
 	startMessage();
-	quitSignal = 0;							/* Signal for quit test button */
 	
-	for(currentTestNo=1; totalTestNo >= currentTestNo; currentTestNo++)
+	unsigned int currentTestNo = 1;
+	unsigned int totalTestNo = TOTAL_TEST;
+	char* stringTestNo;			/* to print test no on the display */
+	char flagNewTest = 1;
+	
+	while(1)
 	{
-		temp = int2char(currentTestNo);
-		printTest(temp); 				/* convert to string cause 1602 needs string */
-		loaded(LOAD_DURITION);
-		unloaded(UNLOAD_DURITION);
-		
-		if(checkRelay() == 0) 			/* check relay if it returns back initial state */
+		if(flag100ms >= 1)
 		{
-			errorCounter++;
-			if(errorCounter == 3) 		/* decide error if fails 3 times in a row */
+			flag100ms = 0;
+			timer100msControl();
+			if(currentTestNo <= totalTestNo)
 			{
-				relayErrorMessage(temp);
-				return 0;
-			}				
-		}
-		else
-			errorCounter = 0; 			/* reset error counter if test is successfull */
-		
-		if(checkDeviceSupply() == 1) 	/* check whether DUT has proper supply */
-		{
-			if(checkDevice() == 0) 		/* DUT has supply, so now check device health */
+				if(flagNewTest) /* if new test starts, then update LCD */
+				{
+					flagNewTest = 0;
+					stringTestNo = int2char(currentTestNo); /* convert to string cause 1602 needs string */
+					printTest(stringTestNo);
+				}
+				setCounterLoaded(LOAD_DURITION);				
+				if(flagTestDone)
+				{
+					flagTestDone = 0;
+					
+					/* ------- Relay Check ------ */
+					if(checkRelay() == 0) /* check relay if it returns back initial state */
+					{
+						relayErrorMessage(stringTestNo);
+						return 0;				
+					}
+					
+					/* ------- Device & Supply Check ------ */
+					if(checkDeviceSupply() == 1) /* check whether DUT has proper supply */
+					{
+						if(checkDevice() == 0) /* DUT has supply, so now check device health */
+						{
+							errorMessage(stringTestNo);
+							return 0;
+						}
+					}
+					else
+					{
+						supplyErrorMessage(stringTestNo);
+						return 0;
+					}
+					
+					if(quitSignal)
+						break;
+					currentTestNo++;
+					flagNewTest = 1;
+					free(stringTestNo); /* into2char function allocate memory each time it s called. Need to be deallocated */
+				}
+			}
+			else
 			{
-				errorMessage(int2char(currentTestNo));
+				successMessage(int2char(currentTestNo-1));
 				return 0;
 			}
+			relayControl();
 		}
-		else
-		{
-			supplyErrorMessage(int2char(currentTestNo));
-			return 0;
-		}
-		
-		/* into2char function allocate memory each time it s called. Need to be deallocated */
-		free(temp); 					
-		if(quitSignal)
-			break;
 	}
-	successMessage(int2char(currentTestNo-1));
-	unloaded(0); 						/* finish the test unloaded with no durition */
+	displayMessage("QUITED");
 	return 0;
-}
-
-/* 
-* Loads the IC output switching the relay
-*
-* @param milisec how much durition need to be loaded
-* @return none
-*/
-void loaded(unsigned int miliSec)
-{
-	write_GP(PA,1,LOW);
-	delayMS(miliSec);
-}
-
-/* 
-* Removes the load from the IC output switching the relay
-*
-* @param milisec how much durition need to kept unloaded
-* @return none
-*/
-void unloaded(unsigned int miliSec)
-{
-	write_GP(PA,1,HIGH);
-	if(miliSec > 0)
-		delayMS(miliSec);
 }
 
 /* 
@@ -91,7 +87,8 @@ void unloaded(unsigned int miliSec)
 int checkDevice(void)
 {
 	write_GP(PA,2,LOW); /* disable DUT */
-	delayMS(20); /* to prevent reading much earlier than output react */
+	delayMS(30); /* to prevent reading much earlier than output react */
+	
 	if(read_GP(PA,3) == 1) /* reads Vout of DUT, if High, Vin and Vout is short circuited inside DUT */
 		return 0;
 	write_GP(PA,2,HIGH); /* enable DUT */
@@ -120,12 +117,19 @@ int checkDeviceSupply(void)
 int checkRelay(void)
 {
 	if(read_GP(PA,5) == 0) /* if PA5 is low, relay sticks to last position. */
-		return 0;
+	{
+		counterErrorRelay++;
+		if(counterErrorRelay == 3) /* decide error if fails 3 times in a row */
+			return 0;
+		else
+			return 1;
+	}
+	counterErrorRelay = 0;	/* reset error counter if test is successfull */
 	return 1;
 }
 
 /* 
-* Configurates and initiliazes GPIOs, GPIO interrupt, I2C and display.
+* Configurates and initiliazes GPIOs, GPIO interrupt, I2C, timer interrupt and display.
 *
 * @param none
 * @return none
@@ -159,6 +163,7 @@ void configSetup(void)
 	i2c_init(2,i2c_FastMode);
 	delayMS(40);
 	displayInit();
+	timer_interrupt_start_ms(timer1,10);
 }
 
 /* 
@@ -172,3 +177,54 @@ void EXTI0_IRQHandler(void)
 	quitSignal = 1;
 	EXTI->PR |= 0x01; 				/* to reset interrupt */
 }
+
+/* 
+* Handles TIMER interrupt. It is from STM32 library.
+*
+* @param none
+* @return none
+*/
+void TIM1_UP_IRQHandler(void)
+{
+	timer_interrupt_flag_reset(timer1);
+	counter10ms++;
+	if(counter10ms >= 10 ) 			/* count until 10 to rise 100ms flag */
+	{
+		counter10ms = 0;
+		flag100ms = 1;
+	}
+}
+
+
+void setCounterLoaded(int count)
+{
+	if(counterLoaded == 0 && counterUnloaded == 0 && flagTestDone == 0) /* set counterLoaded if all proceses are over */
+		counterLoaded = count;
+}
+
+void timer100msControl(void)
+{
+	if(counterLoaded > 0)
+	{
+		counterLoaded--;
+		if(counterLoaded <= 0)
+			counterUnloaded = UNLOAD_DURITION +1; /* +1 to balance -- in the next if{} */
+	}
+	if(counterUnloaded > 0)
+	{
+		counterUnloaded--;
+		if(counterUnloaded <= 0)
+		{
+			flagTestDone = 1;
+		}
+	}
+}
+
+void relayControl(void)
+{
+	if(counterLoaded > 0)
+		write_GP(PA,1,LOW); 		/* load the output via relay */
+	else if(counterUnloaded > 0)
+		write_GP(PA,1,HIGH); 		/* unload the output via relay */
+}
+
