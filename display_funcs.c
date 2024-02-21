@@ -18,13 +18,13 @@ void supplyErrorMessage(char* testNumber)
 	displayMessage(testNumber);
 }
 
-void relayErrorMessage(char* testNum)
+void relayErrorMessage(char* testNumber)
 {
 	displayClear();
 	displayMessage("Relay NOK!");
 	displayNewLine();
 	displayMessage("Test: ");
-	displayMessage(testNum);
+	displayMessage(testNumber);
 }
 
 void printTest(char* testNumber)

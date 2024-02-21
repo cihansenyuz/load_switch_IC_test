@@ -93,12 +93,7 @@ int checkDevice(void)
 	return 1;
 }
 
-/* 
-* Checks if the IC supply is present.
-*
-* @param none
-* @return 1: supplied, 0: no supply
-*/
+
 int checkDeviceSupply(void)
 {
 	if(read_GP(PA,4) == 0) /* if high, Vin of DUT is supplied */

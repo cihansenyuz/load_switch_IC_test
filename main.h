@@ -37,13 +37,75 @@
 #define UNLOAD_DURITION 3		/* set it in 100 miliseconds  */
 /* ------------------------------------------------------ */
 
-void setCounterLoaded(int);
+/* 
+* Checks if all test and analysis is done, then sets load durition counter to start new cycle
+*
+* @param count how many ms to load the IC
+* @return none
+*/
+void setCounterLoaded(int count);
+
+/* 
+* Tests the IC whether it is still operational or not
+*
+* @param none
+* @return 1: operational, 0: defected
+*/
 int checkDevice(void);
+
+/* 
+* Checks if the IC supply is present.
+*
+* @param none
+* @return 1: supplied, 0: no supply
+*/
 int checkDeviceSupply(void);
+
+/* 
+* Controls the relay whether it is still working properly.
+*
+* @param none
+* @return 1: operational, 0: sticked to the last position
+*/
 int checkRelay(void);
+
+/* 
+* Configurates and initiliazes GPIOs, GPIO interrupt, I2C, timer interrupt and display.
+*
+* @param none
+* @return none
+*/
 void configSetup(void);
 
+
+/* 
+* Handles GPIO interrupt. It is from STM32 library.
+*
+* @param none
+* @return none
+*/
 void EXTI0_IRQHandler(void);
+
+/* 
+* Handles TIMER interrupt. It is from STM32 library.
+*
+* @param none
+* @return none
+*/
 void TIM1_UP_IRQHandler(void);
+
+/* 
+* When called after each 100 ms, updates current status of load and unload counters. If load durition is done, starts unload durition. If unload durition is done, raises tests are done flag. Catch the flag to begin analysis.
+*
+* @param none
+* @return none
+*/
 void updateTestStatus(void);
+
+/* 
+* Handles current status of the relay. If process is load or unload, loads or unloads the IC respectively.
+*
+* @param none
+* @return none
+*/
 void relayControl(void);
